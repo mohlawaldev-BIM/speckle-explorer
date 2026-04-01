@@ -1,0 +1,103 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background: #0a0f1a;
+    font-family: 'IBM Plex Sans', sans-serif;
+    color: white;
+  }
+}
+
+@layer components {
+  .glass {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(12px);
+  }
+
+  .glass-hover {
+    @apply transition-all duration-200;
+  }
+
+  .glass-hover:hover {
+    background: rgba(12, 142, 224, 0.08);
+    border-color: rgba(12, 142, 224, 0.3);
+  }
+
+  .selected-card {
+    background: rgba(12, 142, 224, 0.12) !important;
+    border-color: rgba(12, 142, 224, 0.5) !important;
+  }
+
+  .grid-bg {
+    background-image:
+      linear-gradient(rgba(12, 142, 224, 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(12, 142, 224, 0.05) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  .tag {
+    font-size: 0.65rem;
+    padding: 2px 8px;
+    border-radius: 2px;
+    font-family: 'IBM Plex Mono', monospace;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .progress-bar {
+    height: 2px;
+    background: linear-gradient(90deg, #0c8ee0, #36aaf5);
+    animation: progress 1.5s ease-in-out infinite;
+  }
+}
+
+@layer utilities {
+  .fade-in {
+    animation: fadeIn 0.35s ease-out forwards;
+  }
+
+  .slide-up {
+    animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  .pulse-dot {
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
+@keyframes progress {
+  0%   { width: 0%;  margin-left: 0; }
+  50%  { width: 60%; margin-left: 20%; }
+  100% { width: 0%;  margin-left: 100%; }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar       { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(12, 142, 224, 0.3); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(12, 142, 224, 0.6); }
+
+input::placeholder { color: rgba(255, 255, 255, 0.2); }
+input:focus        { outline: none; }
+
+.table-row:hover td {
+  background: rgba(12, 142, 224, 0.05);
+}
