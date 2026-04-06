@@ -3,13 +3,13 @@ import {
   parseSpeckleUrl,
   fetchSpeckle,
   Q_VERSION,
-  Q_OBJECT,
+  Q_ROOT_OBJECT,
   Q_OBJECT_CHILDREN,
 } from '../lib/speckle'
 import { categoriseObjects } from '../lib/utils'
 
 export function useSpeckleModel() {
-  const [status, setStatus]           = useState('idle')   // idle | loading | done | error
+  const [status, setStatus]           = useState('idle')  // idle | loading | done | error
   const [error, setError]             = useState('')
   const [projectName, setProjectName] = useState('')
   const [modelName, setModelName]     = useState('')
@@ -32,55 +32,91 @@ export function useSpeckleModel() {
     const { host, projectId, modelId } = parsed
 
     try {
-      // 1 — Get version info
+      // ── Step 1: get version info and the root object ID ──────────────────────
       const versionData = await fetchSpeckle(host, Q_VERSION, { projectId, modelId }, token)
-      const project = versionData.project
+      const project = versionData?.project
+
+      if (!project) throw new Error('Project not found. Check your URL or token.')
+      if (!project.model) throw new Error('Model not found. Check your URL or token.')
+
       setProjectName(project.name)
       setModelName(project.model.displayName)
 
       const versions = project.model.versions?.items
       if (!versions?.length) throw new Error('No versions found for this model.')
-      const rootObjectId = versions[0].referencedObject
 
-      // 2 — Fetch root object + first page of children
-      const objData = await fetchSpeckle(host, Q_OBJECT, { projectId, objectId: rootObjectId }, token)
-      const rootObj = objData.project.object
+      const rootObjectId = versions[0].referencedObject
+      if (!rootObjectId) throw new Error('Version has no referenced object.')
+
+      // ── Step 2: fetch the root object's own data ─────────────────────────────
+      const rootData = await fetchSpeckle(host, Q_ROOT_OBJECT, { projectId, objectId: rootObjectId }, token)
+      const rootObj = rootData?.project?.object
+
+      if (!rootObj) throw new Error(
+        `Root object (${rootObjectId}) not found. ` +
+        `This may be a private model — make sure your token has access.`
+      )
 
       let collected = []
 
-      if (rootObj.children) {
-        collected = [...rootObj.children.objects]
+      // ── Step 3: paginate through children ────────────────────────────────────
+      let cursor = null
+      let isFirstPage = true
 
-        // Paginate up to 2 000 objects
-        let cursor = rootObj.children.cursor
-        while (cursor && collected.length < 2000) {
-          const more = await fetchSpeckle(
-            host, Q_OBJECT_CHILDREN,
-            { projectId, objectId: rootObjectId, cursor },
-            token
-          )
-          const page = more.project.object.children
-          collected = [...collected, ...page.objects]
-          cursor = page.objects.length ? page.cursor : null
+      while (true) {
+        const pageData = await fetchSpeckle(
+          host,
+          Q_OBJECT_CHILDREN,
+          { projectId, objectId: rootObjectId, cursor: cursor ?? undefined },
+          token
+        )
+
+        const childrenResult = pageData?.project?.object?.children
+
+        // If children is null/undefined on the first page, model has no child objects
+        if (!childrenResult) {
+          if (isFirstPage) break
+          break
         }
+
+        const objects = childrenResult.objects ?? []
+        collected = [...collected, ...objects]
+
+        // Stop if no more pages or we've hit the limit
+        if (!childrenResult.cursor || objects.length === 0 || collected.length >= 2000) break
+
+        cursor = childrenResult.cursor
+        isFirstPage = false
       }
 
-      // 3 — Also pick up inline element arrays from the root data
-      if (rootObj.data) {
+      // ── Step 4: also collect inline arrays from root object's data ────────────
+      if (rootObj.data && typeof rootObj.data === 'object') {
         Object.entries(rootObj.data).forEach(([key, val]) => {
-          if (!Array.isArray(val) || !val.length) return
-          if (val[0]?.referencedId) return // skip reference-only arrays
+          if (!Array.isArray(val) || val.length === 0) return
+        
+          if (val[0]?.referencedId && !val[0]?.speckle_type) return
           val.forEach(el => {
-            if (el && typeof el === 'object') {
-              collected.push({ id: el.id ?? crypto.randomUUID(), data: el })
+            if (el && typeof el === 'object' && !Array.isArray(el)) {
+              collected.push({
+                id: el.id ?? el.applicationId ?? crypto.randomUUID(),
+                data: el,
+              })
             }
           })
         })
       }
 
+      if (collected.length === 0) {
+        throw new Error(
+          'Model loaded but no objects were found. ' +
+          'The model may be empty or structured differently than expected.'
+        )
+      }
+
       setAllObjects(collected)
       setCategories(categoriseObjects(collected))
       setStatus('done')
+
     } catch (err) {
       console.error(err)
       setError(err.message || 'Unknown error')

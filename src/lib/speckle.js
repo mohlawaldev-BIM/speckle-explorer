@@ -34,7 +34,7 @@ export async function fetchSpeckle(host, query, variables = {}, token = '') {
   } catch {
     throw new Error(
       `Network error — could not reach ${host}. ` +
-      `Make sure you're running this on a local server (npm run dev), not from a file:// URL.`
+      `Make sure you are running this on a local server (npm run dev), not from a file:// URL.`
     )
   }
 
@@ -54,6 +54,7 @@ export async function fetchSpeckle(host, query, variables = {}, token = '') {
 
 // ─── GraphQL Queries ────────────────────────────────────────────────────────────
 
+// Step 1 — get the latest version and its referencedObject ID
 export const Q_VERSION = `
   query GetVersion($projectId: String!, $modelId: String!) {
     project(id: $projectId) {
@@ -73,28 +74,28 @@ export const Q_VERSION = `
   }
 `
 
-export const Q_OBJECT = `
-  query GetObject($projectId: String!, $objectId: String!) {
+// Step 2 — fetch only the root object's own data (no children here)
+export const Q_ROOT_OBJECT = `
+  query GetRootObject($projectId: String!, $objectId: String!) {
     project(id: $projectId) {
       object(id: $objectId) {
         id
         data
-        children(limit: 500) {
-          objects { id data }
-          cursor
-          totalCount
-        }
       }
     }
   }
 `
 
+// Step 3 — fetch the first page of children for a given object
 export const Q_OBJECT_CHILDREN = `
   query GetObjectChildren($projectId: String!, $objectId: String!, $cursor: String) {
     project(id: $projectId) {
       object(id: $objectId) {
         children(limit: 500, cursor: $cursor) {
-          objects { id data }
+          objects {
+            id
+            data
+          }
           cursor
           totalCount
         }
