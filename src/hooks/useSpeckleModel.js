@@ -1,11 +1,5 @@
 import { useState, useCallback } from 'react'
-import {
-  parseSpeckleUrl,
-  fetchSpeckle,
-  Q_VERSION,
-  Q_ROOT_OBJECT,
-  Q_OBJECT_CHILDREN,
-} from '../lib/speckle'
+import { parseSpeckleUrl, fetchSpeckle, fetchObjectsREST, Q_VERSION } from '../lib/speckle'
 import { categoriseObjects } from '../lib/utils'
 
 export function useSpeckleModel() {
@@ -32,12 +26,12 @@ export function useSpeckleModel() {
     const { host, projectId, modelId } = parsed
 
     try {
-      // ── Step 1: get version info and the root object ID ──────────────────────
+      // ── Step 1: GraphQL — get project/model names and the root object ID ─────
       const versionData = await fetchSpeckle(host, Q_VERSION, { projectId, modelId }, token)
       const project = versionData?.project
 
-      if (!project) throw new Error('Project not found. Check your URL or token.')
-      if (!project.model) throw new Error('Model not found. Check your URL or token.')
+      if (!project)        throw new Error('Project not found. Check your URL or token.')
+      if (!project.model)  throw new Error('Model not found. Check your URL or token.')
 
       setProjectName(project.name)
       setModelName(project.model.displayName)
@@ -46,71 +40,27 @@ export function useSpeckleModel() {
       if (!versions?.length) throw new Error('No versions found for this model.')
 
       const rootObjectId = versions[0].referencedObject
-      if (!rootObjectId) throw new Error('Version has no referenced object.')
+      if (!rootObjectId)  throw new Error('This version has no referenced object.')
 
-      // ── Step 2: fetch the root object's own data ─────────────────────────────
-      const rootData = await fetchSpeckle(host, Q_ROOT_OBJECT, { projectId, objectId: rootObjectId }, token)
-      const rootObj = rootData?.project?.object
+      // ── Step 2: REST API — download root object + all children at once ────────
+      const rawObjects = await fetchObjectsREST(host, projectId, rootObjectId, token)
 
-      if (!rootObj) throw new Error(
-        `Root object (${rootObjectId}) not found. ` +
-        `This may be a private model — make sure your token has access.`
-      )
-
-      let collected = []
-
-      // ── Step 3: paginate through children ────────────────────────────────────
-      let cursor = null
-      let isFirstPage = true
-
-      while (true) {
-        const pageData = await fetchSpeckle(
-          host,
-          Q_OBJECT_CHILDREN,
-          { projectId, objectId: rootObjectId, cursor: cursor ?? undefined },
-          token
-        )
-
-        const childrenResult = pageData?.project?.object?.children
-
-        // If children is null/undefined on the first page, model has no child objects
-        if (!childrenResult) {
-          if (isFirstPage) break
-          break
-        }
-
-        const objects = childrenResult.objects ?? []
-        collected = [...collected, ...objects]
-
-        // Stop if no more pages or we've hit the limit
-        if (!childrenResult.cursor || objects.length === 0 || collected.length >= 2000) break
-
-        cursor = childrenResult.cursor
-        isFirstPage = false
+      if (!rawObjects.length) {
+        throw new Error('Model loaded but no objects were returned. The model may be empty.')
       }
 
-      // ── Step 4: also collect inline arrays from root object's data ────────────
-      if (rootObj.data && typeof rootObj.data === 'object') {
-        Object.entries(rootObj.data).forEach(([key, val]) => {
-          if (!Array.isArray(val) || val.length === 0) return
-        
-          if (val[0]?.referencedId && !val[0]?.speckle_type) return
-          val.forEach(el => {
-            if (el && typeof el === 'object' && !Array.isArray(el)) {
-              collected.push({
-                id: el.id ?? el.applicationId ?? crypto.randomUUID(),
-                data: el,
-              })
-            }
-          })
-        })
-      }
+      const elementObjects = rawObjects
+        .slice(1)                           
+        .filter(o => o && typeof o === 'object')  
+        .map(o => ({ id: o.id ?? o.applicationId ?? crypto.randomUUID(), data: o }))
 
-      if (collected.length === 0) {
-        throw new Error(
-          'Model loaded but no objects were found. ' +
-          'The model may be empty or structured differently than expected.'
-        )
+      // If slicing left us empty (very small model), fall back to using all objects
+      const collected = elementObjects.length > 0 ? elementObjects : rawObjects
+        .filter(o => o && typeof o === 'object')
+        .map(o => ({ id: o.id ?? crypto.randomUUID(), data: o }))
+
+      if (!collected.length) {
+        throw new Error('Model loaded but contained no usable objects.')
       }
 
       setAllObjects(collected)
